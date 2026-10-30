@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import time
 
@@ -14,11 +15,14 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 )
 from astrbot.core.provider.entities import ProviderRequest
 
+from .core.clone_policy import build_clone_system_prompt
 from .core.config import PluginConfig
 from .core.db import UserProfileDB
 from .core.entry import EntryService
 from .core.limits import ConcurrencyLimiter, UsageLimiter
 from .core.llm import LLMService
+from .core.media import MediaCaptionService
+from .core.meme_pack import MemePackService
 from .core.message import MessageManager
 from .core.model import UserProfile
 
@@ -40,6 +44,8 @@ class PortrayalPlugin(Star):
         self.msg = MessageManager(self.cfg)
         self.entry_service = EntryService(self.cfg)
         self.llm = LLMService(self.cfg)
+        self.media_captioner = MediaCaptionService(self.cfg, self.context)
+        self.meme_pack_service = MemePackService(self.cfg, self.context)
         self.usage_limiter = UsageLimiter(
             cooldown_seconds=self.cfg.limits.cooldown_seconds,
             daily_limit=self.cfg.limits.daily_limit,
@@ -135,6 +141,9 @@ class PortrayalPlugin(Star):
                 "生成类命令有冷却/每日次数限制；同类型画像会复用缓存，"
                 "管理员可用「强制」刷新。"
             )
+        if self.cfg.media.enable:
+            pack_note = "，并自动同步 meme_manager 图包" if self.cfg.media.auto_pack else ""
+            lines.append(f"克隆人格会分析图片/表情包{pack_note}。")
         return "\n".join(lines)
 
     @filter.command("画像帮助", alias={"画像help"})
@@ -167,6 +176,23 @@ class PortrayalPlugin(Star):
             return
         info = profile.to_text()
         req.system_prompt += f"\n\n### 当前对话用户的背景信息\n{info}\n\n"
+
+    async def _sync_clone_meme_pack(
+        self,
+        uid: str,
+        nickname: str,
+        media: list[dict],
+        event,
+    ) -> None:
+        try:
+            await self.meme_pack_service.sync(
+                uid=uid,
+                nickname=nickname,
+                media=media,
+                event=event,
+            )
+        except Exception:
+            logger.exception("[portrayal] 自动同步克隆表情包失败")
 
     def _portrait_key(self, command: str) -> str:
         if "克隆" in command:
@@ -271,25 +297,44 @@ class PortrayalPlugin(Star):
                 event,
                 profile.user_id,
                 max_rounds=query_rounds,
+                force_refresh=force,
             )
             if result.is_empty:
                 yield event.plain_result("没有查询到该群友的任何消息")
                 return
+            media_part = (
+                f"，其中{result.media_count}条图片/表情包"
+                if result.media_count
+                else ""
+            )
             if result.from_cache and result.scanned_messages <= 0:
                 yield event.plain_result(
-                    f"命中缓存，已提取到{result.count}条{profile.nickname}的聊天记录，"
-                    f"正在{cmd}..."
+                    f"命中缓存，已提取到{result.count}条{profile.nickname}的聊天记录"
+                    f"{media_part}，正在{cmd}..."
                 )
             else:
                 yield event.plain_result(
                     f"已从{result.scanned_messages}条群消息中提取到"
-                    f"{result.count}条{profile.nickname}的聊天记录，正在{cmd}..."
+                    f"{result.count}条{profile.nickname}的聊天记录{media_part}，"
+                    f"正在{cmd}..."
                 )
+
+            media = result.media
+            if media and self.cfg.media.enable:
+                try:
+                    media = await self.media_captioner.caption(
+                        media,
+                        umo=event.unified_msg_origin,
+                    )
+                except Exception as e:
+                    logger.warning(f"[portrayal] 图片/表情包描述失败，回退文本分析: {e}")
+                    media = result.media
 
             # LLM 分析画像
             try:
                 content = await self.llm.generate_portrait(
                     result.texts,
+                    media,
                     profile,
                     prompt.content,
                     umo=event.unified_msg_origin,
@@ -307,6 +352,22 @@ class PortrayalPlugin(Star):
             profile.portrait_updated_at[portrait_key] = now
             profile.timestamp = now
             self.db.set(profile)
+
+            if (
+                "克隆" in cmd
+                and self.cfg.media.enable
+                and self.cfg.media.auto_pack
+                and media
+            ):
+                asyncio.create_task(
+                    self._sync_clone_meme_pack(
+                        target_id,
+                        profile.nickname,
+                        media,
+                        event,
+                    )
+                )
+
             yield event.plain_result(content)
 
     async def _set_conversation_persona_id(
@@ -439,15 +500,21 @@ class PortrayalPlugin(Star):
                 except Exception as e:
                     logger.warning(f"获取 bot 原始资料失败：{e}")
 
+        system_prompt = build_clone_system_prompt(
+            profile.clone_prompt,
+            aggression=self.cfg.clone.aggression,
+            guardrail_enable=self.cfg.clone.guardrail_enable,
+            custom_guardrail=self.cfg.clone.guardrail_text,
+        )
         try:
             await self.context.persona_manager.update_persona(
                 persona_id=profile.persona_id,
-                system_prompt=profile.clone_prompt,
+                system_prompt=system_prompt,
             )
         except ValueError:
             await self.context.persona_manager.create_persona(
                 persona_id=profile.persona_id,
-                system_prompt=profile.clone_prompt,
+                system_prompt=system_prompt,
             )
 
         await self.context.conversation_manager.update_conversation_persona_id(
@@ -463,9 +530,22 @@ class PortrayalPlugin(Star):
         if force_applied_persona_id:
             force_warn_msg = "提醒：由于自定义规则，您现在切换的人格将不会生效。"
 
+        pack_note = ""
+        if self.cfg.media.enable and self.cfg.media.auto_pack:
+            try:
+                pack_ready = await self.meme_pack_service.ensure_binding(target_id)
+            except Exception:
+                logger.warning("[portrayal] 切换时检查表情包图库失败", exc_info=True)
+                pack_ready = False
+            pack_note = (
+                " 表情包图库已绑定。"
+                if pack_ready
+                else " 表情包图库尚未就绪；如刚克隆完请稍等，或执行一次「克隆人格 强制 @群友」。"
+            )
+
         yield event.plain_result(
             f"已将当前对话切换为【{profile.nickname}】的克隆人格，对话历史已清空。"
-            f"如需还原，请使用：恢复人格。{force_warn_msg}"
+            f"如需还原，请使用：恢复人格。{force_warn_msg}{pack_note}"
         )
 
         if self.cfg.sync_bot_profile:

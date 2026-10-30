@@ -146,6 +146,23 @@ class LimitsConfig(ConfigNode):
     admin_exempt: bool
 
 
+class MediaConfig(ConfigNode):
+    enable: bool
+    max_images: int
+    max_age_hours: int
+    caption_provider_id: str
+    caption_timeout: float
+    auto_pack: bool
+    pack_category: str
+    pack_max_images: int
+
+
+class CloneConfig(ConfigNode):
+    guardrail_enable: bool
+    guardrail_text: str
+    aggression: str
+
+
 class PluginConfig(ConfigNode):
     llm: LLMConfig
     message: MessageConfig
@@ -153,6 +170,8 @@ class PluginConfig(ConfigNode):
     sync_bot_profile: bool
     delete_clone_persona_on_restore: bool
     limits: LimitsConfig
+    media: MediaConfig
+    clone: CloneConfig
     entry_storage: list[dict[str, Any]]
 
     _plugin_name: str = "astrbot_plugin_portrayal"
@@ -167,6 +186,23 @@ class PluginConfig(ConfigNode):
                 "group_concurrency": 1,
                 "global_concurrency": 2,
                 "admin_exempt": True,
+            }
+        if "media" not in cfg:
+            cfg["media"] = {
+                "enable": True,
+                "max_images": 20,
+                "max_age_hours": 24,
+                "caption_provider_id": "",
+                "caption_timeout": 15.0,
+                "auto_pack": True,
+                "pack_category": "克隆表情",
+                "pack_max_images": 30,
+            }
+        if "clone" not in cfg:
+            cfg["clone"] = {
+                "guardrail_enable": True,
+                "guardrail_text": "",
+                "aggression": "balanced",
             }
         super().__init__(cfg)
         self.context = context

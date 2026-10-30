@@ -165,6 +165,93 @@
             }
         }
     },
+    "media": {
+        "description": "图片/表情包分析",
+        "type": "object",
+        "hint": "克隆时分析目标用户发送的图片/表情包，并自动同步到 meme_manager 的 persona 图包。",
+        "items": {
+            "enable": {
+                "description": "启用图片/表情包分析",
+                "type": "bool",
+                "hint": "开启后会采集目标用户的图片、商城表情和 QQ 表情，并用图像模型生成简短描述；关闭后只分析文本。",
+                "default": true
+            },
+            "max_images": {
+                "description": "每次最多描述图片数",
+                "type": "int",
+                "hint": "每次画像/克隆最多为多少张图片或表情包生成描述；0 表示不调用视觉模型。",
+                "slider": {"min": 0, "max": 50, "step": 1},
+                "default": 20
+            },
+            "max_age_hours": {
+                "description": "只处理最近多少小时的图片",
+                "type": "int",
+                "hint": "QQ 历史图片链接会过期；超过该时长的图片不再下载/描述/入包，避免 404。0 表示不限制。",
+                "slider": {"min": 0, "max": 168, "step": 1},
+                "default": 24
+            },
+            "caption_provider_id": {
+                "description": "图片描述模型",
+                "type": "string",
+                "_special": "select_provider",
+                "hint": "留空时使用 AstrBot「配置 → 其他设置」里的默认图片描述模型；该模型需要支持视觉输入。",
+                "default": ""
+            },
+            "caption_timeout": {
+                "description": "单张描述超时（秒）",
+                "type": "float",
+                "hint": "超过该时间仍没有描述时跳过这张图片，避免拖慢整个克隆。",
+                "slider": {"min": 3, "max": 60, "step": 1},
+                "default": 15
+            },
+            "auto_pack": {
+                "description": "自动同步 meme_manager 图包",
+                "type": "bool",
+                "hint": "开启后，克隆时把目标用户的图片/表情包自动加入 meme_manager 的 portrayal_QQ号 人格图包，并在后台启动语义化。需要安装并启用 meme_manager。",
+                "default": true
+            },
+            "pack_category": {
+                "description": "图包分类名",
+                "type": "string",
+                "hint": "自动建包时使用的分类目录名，默认「克隆表情」。",
+                "default": "克隆表情"
+            },
+            "pack_max_images": {
+                "description": "每次最多入包图片数",
+                "type": "int",
+                "hint": "每次克隆最多下载多少张图片/表情包到图包；0 表示不入包。",
+                "slider": {"min": 0, "max": 100, "step": 1},
+                "default": 30
+            }
+        }
+    },
+    "clone": {
+        "description": "克隆人格行为边界",
+        "type": "object",
+        "hint": "控制克隆人格的表达强度和禁止行为；每次切换人格时生效。",
+        "items": {
+            "guardrail_enable": {
+                "description": "启用人格行为边界",
+                "type": "bool",
+                "hint": "开启后，切换人格会在克隆提示词后追加禁止辱骂、人身攻击、歧视、威胁和性暗示的边界规则。建议保持开启。",
+                "default": true
+            },
+            "guardrail_text": {
+                "description": "自定义行为边界",
+                "type": "text",
+                "hint": "留空使用内置边界文案；填写后替换整段边界文案。",
+                "default": ""
+            },
+            "aggression": {
+                "description": "攻击性强度",
+                "type": "string",
+                "options": ["soft", "balanced", "original"],
+                "labels": ["温和：只傲娇不骂人", "适中：熟人轻度互损", "接近原风格：保留形式但有硬边界"],
+                "hint": "控制克隆人格的吐槽/互损强度；行为边界始终优先。默认适中。",
+                "default": "balanced"
+            }
+        }
+    },
     "entry_storage": {
         "description": "提示词配置",
         "hint": "可自定义多套提示词，并定义对应触发命令。由此实现不同风格的画像分析",

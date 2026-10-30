@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,7 @@ class CachedMessages:
 
     texts: list[str]
     timestamp: float
+    media: list[dict[str, Any]] = field(default_factory=list)
 
 
 class MessageCacheStorage:
@@ -55,7 +56,15 @@ class MessageCacheStorage:
                     continue
                 if not isinstance(timestamp, int | float):
                     continue
-                users[key] = CachedMessages(texts=texts, timestamp=float(timestamp))
+                media = value.get("media")
+                if not isinstance(media, list):
+                    media = []
+                media = [item for item in media if isinstance(item, dict)]
+                users[key] = CachedMessages(
+                    texts=texts,
+                    timestamp=float(timestamp),
+                    media=media,
+                )
 
             cursors = {
                 str(group_id): int(cursor)

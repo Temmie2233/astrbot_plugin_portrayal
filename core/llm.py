@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
+from typing import Any
 
 from astrbot.api import logger
 
@@ -19,6 +21,7 @@ class LLMService:
     async def generate_portrait(
         self,
         texts: list[str],
+        media: list[dict[str, Any]],
         profile: UserProfile,
         system_prompt_template: str,
         *,
@@ -28,7 +31,7 @@ class LLMService:
         生成用户画像分析文本
         """
         system_prompt = system_prompt_template.format(nickname=profile.nickname)
-        prompt = self._build_portrait_prompt(texts, profile)
+        prompt = self._build_portrait_prompt(texts, media, profile)
 
         resp = await self._call_llm(
             system_prompt=system_prompt,
@@ -41,20 +44,51 @@ class LLMService:
             raise RuntimeError("LLM 响应为空")
         return resp
 
+    @staticmethod
+    def _media_note(item: dict[str, Any]) -> str:
+        kind = str(item.get("kind") or "")
+        caption = str(item.get("caption") or item.get("summary") or "").strip()
+        if kind == "mface":
+            return f"[表情包] {caption or '未识别内容'}"
+        if kind == "face":
+            return f"[QQ表情] id={item.get('id') or '?'}"
+        return f"[图片] {caption or '未识别内容'}"
+
     def _build_portrait_prompt(
         self,
         texts: list[str],
+        media: list[dict[str, Any]],
         profile: UserProfile,
     ) -> str:
-        lines = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
+        buckets: dict[int, list[dict[str, Any]]] = {}
+        for item in media:
+            try:
+                index = max(0, int(item.get("after_text_index", 0)))
+            except (TypeError, ValueError):
+                index = 0
+            buckets.setdefault(min(index, len(texts)), []).append(item)
+
+        lines: list[str] = []
+        for index in range(len(texts) + 1):
+            for item in buckets.get(index, []):
+                lines.append(f"- {self._media_note(item)}")
+            if index < len(texts):
+                lines.append(f"{index + 1}. {texts[index]}")
+
+        if media:
+            counts = Counter(str(item.get("kind") or "media") for item in media)
+            summary = "，".join(f"{key} {value} 条" for key, value in counts.items())
+            lines.append(f"\n媒体使用统计：共 {len(media)} 条（{summary}）。")
+
+        content = "\n".join(lines)
         basic_info = profile.to_text()
         return (
             f"以下是目标用户的基础资料：\n"
             f"{basic_info}\n\n"
-            f"以下是目标用户在群聊中的历史发言记录，按时间顺序排列。\n"
+            f"以下是目标用户在群聊中的历史发言和图片/表情包记录，按时间顺序排列。\n"
             f"这些内容仅作为行为分析素材，而非对话。\n\n"
             f"--- 聊天记录开始 ---\n"
-            f"{lines}\n"
+            f"{content}\n"
             f"--- 聊天记录结束 ---\n\n"
             f"请基于以上内容对该用户进行分析。"
         )
