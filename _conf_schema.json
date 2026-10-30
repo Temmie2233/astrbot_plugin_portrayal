@@ -1,0 +1,198 @@
+{
+    "llm": {
+        "description": "LLM配置",
+        "type": "object",
+        "items": {
+            "provider_id": {
+                "description": "用于分析画像的LLM提供商",
+                "hint": "留空或者填写的提供商不存在时, 则使用当前正在使用的LLM提供商",
+                "type": "string",
+                "default": "",
+                "_special": "select_provider"
+            },
+            "retry_times": {
+                "description": "LLM调用失败重试次数",
+                "type": "int",
+                "hint": "LLM调用失败时, 重试的次数",
+                "slider": {
+                    "min": 1,
+                    "max": 5,
+                    "step": 1
+                },
+                "default": 2
+            }
+        }
+    },
+    "message": {
+        "description": "消息查询配置",
+        "type": "object",
+        "items": {
+            "default_query_rounds": {
+                "description": "获取群消息的默认轮询次数",
+                "type": "int",
+                "hint": "每轮固定获取200条群消息, 此处指定轮询多少次。也可用命令 “画像 @群友 轮数” 可实时指定轮数",
+                "slider": {
+                    "min": 1,
+                    "max": 100,
+                    "step": 5
+                },
+                "default": 30
+            },
+            "max_msg_count": {
+                "description": "用于分析的最大消息量(条)",
+                "type": "int",
+                "hint": "轮询过程中， 获取的群消息数提前达到了最大消息量时，中断轮询。注意：用于分析的消息量越多, 画像越准确, 但需要消耗更多时间和Token",
+                "slider": {
+                    "min": 100,
+                    "max": 1000,
+                    "step": 10
+                },
+                "default": 500
+            },
+            "cache_ttl_min": {
+                "description": "消息缓存的过期时长(分钟)",
+                "type": "int",
+                "hint": "查询群消息时，会将查询到的消息缓存一段时间方便下次快速取用。此处定义缓存过久过期, 单位为分钟，过期后清除缓存的消息",
+                "slider": {
+                    "min": 1,
+                    "max": 1440,
+                    "step": 1
+                },
+                "default": 120
+            },
+            "protected_user_ids": {
+                "description": "受保护用户名单",
+                "type": "list",
+                "hint": "填写QQ号。名单中的用户不允许被查询消息",
+                "default": []
+            }
+        }
+    },
+    "inject_prompt": {
+        "description": "给提示词注入画像",
+        "type": "bool",
+        "hint": "打开后，每轮对话中，若本地存有当前用户的画像，则自动将该用户画像注入到系统提示词中",
+        "default": false
+    },
+    "sync_bot_profile": {
+        "description": "切换人格时同步 bot 昵称/头像",
+        "type": "bool",
+        "hint": "开启后，切换人格会把 bot 的 QQ 昵称和头像改成目标群友的。注意这是账号级全局生效，会影响所有群；默认关闭。",
+        "default": false
+    },
+    "delete_clone_persona_on_restore": {
+        "description": "恢复人格时删除克隆人格",
+        "type": "bool",
+        "hint": "开启后，执行「恢复人格」会同时删除本次切换使用的克隆人格，避免人格库残留。默认关闭。",
+        "default": false
+    },
+    "limits": {
+        "description": "使用限制",
+        "type": "object",
+        "hint": "控制画像生成的冷却、每日次数、缓存复用和并发。0 表示不限制（并发上限除外）。",
+        "items": {
+            "cooldown_seconds": {
+                "description": "每用户冷却（秒）",
+                "type": "int",
+                "hint": "同一用户两次成功生成画像之间至少间隔多少秒；0 表示不限制。管理员默认豁免。",
+                "slider": {
+                    "min": 0,
+                    "max": 3600,
+                    "step": 60
+                },
+                "default": 600
+            },
+            "daily_limit": {
+                "description": "每用户每日次数",
+                "type": "int",
+                "hint": "每个用户每天最多成功生成多少次画像（所有生成命令共用）；0 表示不限制。",
+                "slider": {
+                    "min": 0,
+                    "max": 50,
+                    "step": 1
+                },
+                "default": 5
+            },
+            "target_daily_limit": {
+                "description": "同一目标每日次数",
+                "type": "int",
+                "hint": "同一用户每天最多查询同一目标多少次；0 表示不限制。用于防止针对同一人的反复画像。",
+                "slider": {
+                    "min": 0,
+                    "max": 20,
+                    "step": 1
+                },
+                "default": 2
+            },
+            "reuse_hours": {
+                "description": "画像缓存复用（小时）",
+                "type": "int",
+                "hint": "同一目标同一类型在多少小时内直接返回缓存结果，不重新扫群和调用 LLM；0 表示不复用。管理员可用「强制」刷新。",
+                "slider": {
+                    "min": 0,
+                    "max": 168,
+                    "step": 1
+                },
+                "default": 12
+            },
+            "group_concurrency": {
+                "description": "每群并发上限",
+                "type": "int",
+                "hint": "同一个群同时最多运行几个画像任务，超出的排队。默认 1。",
+                "slider": {
+                    "min": 1,
+                    "max": 5,
+                    "step": 1
+                },
+                "default": 1
+            },
+            "global_concurrency": {
+                "description": "全局并发上限",
+                "type": "int",
+                "hint": "所有群同时最多运行几个画像任务。默认 2。",
+                "slider": {
+                    "min": 1,
+                    "max": 10,
+                    "step": 1
+                },
+                "default": 2
+            },
+            "admin_exempt": {
+                "description": "管理员豁免限制",
+                "type": "bool",
+                "hint": "开启后管理员不受冷却、每日次数和同目标次数限制；并发限制仍然生效。",
+                "default": true
+            }
+        }
+    },
+    "entry_storage": {
+        "description": "提示词配置",
+        "hint": "可自定义多套提示词，并定义对应触发命令。由此实现不同风格的画像分析",
+        "type": "template_list",
+        "templates": {
+            "default": {
+                "name": "提示词条目",
+                "items": {
+                    "command": {
+                        "description": "触发命令",
+                        "hint": "定义用什么命令触发本套提示词",
+                        "type": "string",
+                        "default": "请输入命令"
+                    },
+                    "need_admin": { 
+                        "description": "仅管理员可用",
+                        "hint": "是否需要bot管理员权限触发命令",
+                        "type": "bool",
+                        "default": false
+                    },
+                    "content": {
+                        "description": "提示词内容",
+                        "hint": "请填写提示词内容",
+                        "type": "text",
+                        "default": "请输入提示词"
+                    }
+                }
+            }
+        }
+    }
+}
